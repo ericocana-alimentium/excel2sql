@@ -10,7 +10,8 @@ import warnings
 warnings.simplefilter(action='ignore', category=UserWarning) #Ignorar warnings
 
 # %% [markdown]
-# Utils
+# ### Utils
+# Esta sección contiene funciones de utilidad que son utilizadas a lo largo del script para generar el encabezado SQL y limpiar valores SQL.
 
 # %%
 def generate_sql_header(task_link, description, author, hora_inicio):
@@ -68,12 +69,24 @@ def clean_sql_value(value, declares):
     return value
 
 # %% [markdown]
-# Procesamiento de archivos
+# ### Procesamiento de archivos
+# Esta sección define una clase para procesar archivos Excel y generar scripts SQL a partir de ellos.
 
 # %%
 class SQLFileProcessor:
-    
+ 
     def __init__(self, path, task_link, description, author, mode="folder", output_dir=None):
+        """
+        Inicializa el procesador con los parámetros necesarios.
+        Args:
+        - path (str): Ruta al archivo Excel o directorio.
+        - task_link (str): Enlace de la tarea.
+        - description (str): Descripción de la tarea.
+        - author (str): Nombre del autor.
+        - mode (str): Modo de procesamiento ('folder' para carpeta, 'file' para archivo único).
+        - output_dir (str, opcional): Directorio de salida para los archivos generados.
+        """
+         
         self.path = path
         self.task_link = task_link
         self.description = description
@@ -87,6 +100,17 @@ class SQLFileProcessor:
         self.output_dir = output_dir if output_dir else os.path.join(os.path.expanduser("~"), "Downloads")
 
     def process_files(self):
+
+        """
+        Procesa los archivos Excel y genera los scripts SQL correspondientes.
+
+        Returns:
+        - nombresSQL (list): Lista de nombres de archivos SQL generados.
+        - log_messages (list): Lista de mensajes de registro.
+        - hojas_no_procesadas (int): Número de hojas no procesadas.
+        - validation_data (dict): Datos de validación de queries generadas por hoja.
+        """
+
         contador_lineas_totales = 0
         contador = 0
         nombresSQL = []
@@ -111,6 +135,8 @@ class SQLFileProcessor:
                 declares = []
                 contenido_columna += f"---Tabla: {sheet_name}\n"
                 queries_count = 0
+                insert_count = 0
+                update_count = 0
 
                 # Procesar cada fila del DataFrame
                 for index, row in df.iterrows():
@@ -123,6 +149,7 @@ class SQLFileProcessor:
                             update_value = clean_sql_value(update_value.strip(), declares)
                             contenido_columna += update_value + "\n"
                             queries_count += 1
+                            update_count += 1
                             contador_lineas_totales += 1
 
                         # Si no hay 'UPDATE', procesar 'INSERT'
@@ -130,6 +157,7 @@ class SQLFileProcessor:
                             insert_value = clean_sql_value(insert_value.strip(), declares)
                             contenido_columna += insert_value + "\n"
                             queries_count += 1
+                            insert_count += 1
                             contador_lineas_totales += 1
 
                         # Control de declaración 'GO' cada 45 líneas
@@ -143,7 +171,13 @@ class SQLFileProcessor:
                         self.log_messages.append(f"Error: al procesar la fila {index} en la hoja {sheet_name}: {e}")
                         continue
 
-                self.validation_data[sheet_name] = queries_count
+                # Solo agregar datos de validación si hay consultas generadas
+                if queries_count > 0:
+                    self.validation_data[sheet_name] = {
+                        "total_queries": queries_count,
+                        "inserts": insert_count,
+                        "updates": update_count
+                    }
 
             contenido_columna += "GO\nROLLBACK\n--COMMIT\n"
             nombre_archivo_salida = f"{self.hora_inicio.strftime('%Y%m%d')}-{codigo_tarea}-00{contador}-DAT-{os.path.basename(archivo_excel).split('.')[0]}.sql"
@@ -165,16 +199,22 @@ class SQLFileProcessor:
 
 
 # %% [markdown]
-# GUI
+# ### GUI
+# Esta sección define una clase para la interfaz gráfica de usuario (GUI) que permite seleccionar archivos y carpetas, configurar opciones, y generar los scripts SQL mediante interacción con la aplicación
 
 # %%
 class SQLGeneratorApp:
     def __init__(self):
+
+        """
+        Inicializa la aplicación y configura los elementos de la interfaz gráfica.
+        """
+
         self.root = Tk()
-        self.root.title("Excel 2 SQL")
+        self.root.title("Excel 2 SQL v3.5")
         
-        icon_path = os.path.join(os.getcwd(), 'assets', 'icon.ico')
-        self.root.iconbitmap(icon_path)
+        #icon_path = os.path.join(os.getcwd(), 'assets', 'icon.ico')
+        #self.root.iconbitmap(icon_path)
 
         # Variables
         self.directory = tk.StringVar()
@@ -200,6 +240,10 @@ class SQLGeneratorApp:
         
         
     def create_widgets(self):
+        
+        """
+        Crea y configura los widgets de la interfaz gráfica de usuario.
+        """
 
         tk.Label(self.root, text="Seleccionar modo:").grid(row=0, column=0, padx=10, pady=10)
         tk.Radiobutton(self.root, text="Multiple excels (Carpeta)", variable=self.mode, value="folder", command=self.update_mode).grid(row=0, column=1, padx=10, pady=10)
@@ -250,6 +294,11 @@ class SQLGeneratorApp:
 
 
     def update_mode(self):
+
+        """
+        Actualiza la interfaz de usuario según el modo seleccionado (archivo único o carpeta).
+        """
+
         if self.mode.get() == "folder":
             self.directory_label.grid(row=1, column=0, padx=10, pady=10)
             self.directory_entry.grid(row=1, column=1, padx=10, pady=10)
@@ -270,21 +319,35 @@ class SQLGeneratorApp:
             #self.process_button.config(text="Generar SQL")
     
     def browse_directory(self):
+        """
+        Muestra un cuadro de diálogo para seleccionar un directorio y guarda la selección.
+        """
         directory = filedialog.askdirectory()
         if directory:
             self.directory.set(directory)
     
     def browse_file(self):
+        """
+        Muestra un cuadro de diálogo para seleccionar un archivo Excel y guarda la selección.
+        """
         file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
         if file_path:
             self.filepath.set(file_path)
 
     def browse_output_directory(self):
+        """
+        Muestra un cuadro de diálogo para seleccionar un directorio de salida y guarda la selección.
+        """
         directory = filedialog.askdirectory()
         if directory:
             self.output_dir.set(directory)
     
     def generate_sql_files(self):
+
+        """
+        Genera los archivos SQL llamando a SQLFileProcessor y maneja el resultado mostrando mensajes en la GUI.
+        """
+
         task_link = self.task_link.get()
         description = self.description.get()
         author = self.author.get()
@@ -321,6 +384,15 @@ class SQLGeneratorApp:
             messagebox.showerror("Error", str(e))
 
     def filter_logs(self, filter_text, log_text_widget):
+
+        """
+        Filtra los logs según el texto de búsqueda introducido.
+
+        Args:
+        - filter_text (str): Texto por el cual filtrar los logs.
+        - log_text_widget (tk.Text): Widget de texto donde se muestran los logs.
+        """
+
         log_text_widget.config(state=tk.NORMAL)
         log_text_widget.delete(1.0, tk.END)
         for message in self.log_messages:
@@ -329,6 +401,10 @@ class SQLGeneratorApp:
         log_text_widget.config(state=tk.DISABLED)
 
     def show_log(self):
+
+        """
+        Muestra una nueva ventana con los logs de depuración. De cara a las hojas que se procesan o no, al igual que los errores
+        """
         log_window = tk.Toplevel(self.root)
         log_window.title("Log de depuración")
 
@@ -351,15 +427,40 @@ class SQLGeneratorApp:
 
 
     def filter_validation(self, filter_text, validation_text_widget):
+
+        """
+        Filtra los resultados de validación según el texto de búsqueda introducido.
+
+        Args:
+        - filter_text (str): Texto por el cual filtrar la validación.
+        - validation_text_widget (tk.Text): Widget de texto donde se muestran los resultados de validación.
+        """
+
         validation_text_widget.config(state=tk.NORMAL)
         validation_text_widget.delete(1.0, tk.END)
-        for sheet_name, queries_count in self.validation_data.items():
-            entry_text = f"Hoja {sheet_name}: {queries_count} queries generadas.\n"
-            if filter_text.lower() in entry_text.lower():
-                validation_text_widget.insert(tk.END, entry_text)
+        for sheet_name, data in self.validation_data.items():
+            total = data["total_queries"]
+            inserts = data["inserts"]
+            updates = data["updates"]
+            line = f"Hoja {sheet_name}: {total} queries generadas."
+            if total > 0:
+                if inserts > 0:
+                    line += f" INSERTs: {inserts}"
+                if updates > 0:
+                    line += f" UPDATEs: {updates}"
+                line += "\n"
+                
+                # Verificar si la línea coincide con el filtro
+                if filter_text.lower() in line.lower():
+                    validation_text_widget.insert(tk.END, line)
         validation_text_widget.config(state=tk.DISABLED)
 
     def show_validation(self):
+
+        """
+        Muestra una nueva ventana con los resultados de validación de las queries generadas.
+        """
+
         validation_window = Toplevel(self.root)
         validation_window.title("Validación de queries generadas")
 
@@ -374,8 +475,22 @@ class SQLGeneratorApp:
         validation_text = scrolledtext.ScrolledText(validation_window, width=100, height=30)
         validation_text.pack(padx=10, pady=10)
         
-        for sheet_name, queries_count in self.validation_data.items():
-            validation_text.insert(tk.END, f"Hoja {sheet_name}: {queries_count} queries generadas.\n")
+        for sheet_name, data in self.validation_data.items():
+            total = data["total_queries"]
+            inserts = data["inserts"]
+            updates = data["updates"]
+             # Siempre muestra el total de queries generadas
+            validation_text.insert(tk.END, f"Hoja {sheet_name}: {total} queries generadas.")
+            # Solo muestra INSERTs y UPDATEs si son mayores que 0
+            if total > 0:
+                details = []
+                if inserts > 0:
+                    details.append(f"INSERTs: {inserts}")
+                if updates > 0:
+                    details.append(f"UPDATEs: {updates}")
+                if details:
+                    validation_text.insert(tk.END, f" ({', '.join(details)})")
+            validation_text.insert(tk.END, "\n")    
         
         validation_text.config(state=tk.DISABLED)
 
